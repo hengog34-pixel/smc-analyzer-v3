@@ -1,0 +1,907 @@
+<!doctype html>
+<html lang="km">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BMA · SMC · MSnR Analyzer</title>
+  <style>
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --line: #30363d;
+  --text: #c9d1d9;
+  --muted: #8b949e;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --blue: #58a6ff;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Noto Sans Khmer", system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+h1 { font-size: 16px; margin: 0; }
+h3 { font-size: 13px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+select, input[type=number], button {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; font: inherit;
+}
+button { cursor: pointer; background: #21262d; }
+button:hover { border-color: var(--blue); }
+#status { color: var(--muted); font-size: 12px; }
+main { flex: 1; display: flex; min-height: 0; }
+#chart { flex: 1; min-width: 0; }
+aside {
+  width: 340px; overflow-y: auto; padding: 10px; border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.inputs label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); }
+.inputs input { width: 100%; margin-top: 2px; }
+.auto { display: block; margin-top: 8px; font-size: 13px; }
+.row { display: flex; justify-content: space-between; padding: 2px 0; }
+.buy { color: var(--green); } .sell { color: var(--red); } .warn { color: var(--yellow); }
+.big { font-size: 18px; font-weight: 700; }
+.sig { border-top: 1px solid var(--line); padding: 6px 0; font-size: 12px; }
+.sig:first-child { border-top: 0; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; margin-left: 4px; }
+.tag.TP { background: rgba(63,185,80,.2); color: var(--green); }
+.tag.SL { background: rgba(248,81,73,.2); color: var(--red); }
+.tag.OPEN { background: rgba(210,153,34,.2); color: var(--yellow); }
+.note { color: var(--muted); font-size: 12px; margin: 0; }
+table.bt { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+table.bt th, table.bt td { text-align: right; padding: 3px 4px; border-top: 1px solid var(--line); }
+table.bt th:first-child, table.bt td:first-child { text-align: left; }
+table.bt th { color: var(--muted); font-weight: 600; border-top: 0; }
+table.bt small { color: var(--muted); }
+button:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 860px) {
+  main { flex-direction: column; }
+  #chart { min-height: 420px; flex: none; }
+  aside { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+}
+
+</style>
+</head>
+<body>
+  <header>
+    <h1>BMA · ICT SMC · Trend Line · MSnR</h1>
+    <div class="controls">
+      <select id="symbol">
+        <option>BTCUSDT</option>
+        <option>ETHUSDT</option>
+        <option>SOLUSDT</option>
+        <option>BNBUSDT</option>
+        <option>XRPUSDT</option>
+        <option value="PAXGUSDT">PAXG (Gold)</option>
+      </select>
+      <select id="tf">
+        <option value="5m">M5</option>
+        <option value="15m" selected>M15</option>
+        <option value="1h">H1</option>
+        <option value="4h">H4</option>
+        <option value="1d">D1</option>
+      </select>
+      <select id="preset" title="Preset">
+        <option value="strict" selected>Strict (តិច ច្បាស់)</option>
+        <option value="balanced">Balanced</option>
+        <option value="active">Active (ច្រើន)</option>
+      </select>
+      <select id="htf" title="Higher timeframe bias">
+        <option value="14400" selected>HTF: H4</option>
+        <option value="3600">HTF: H1</option>
+        <option value="0">HTF: Off</option>
+      </select>
+      <button id="reload">Refresh</button>
+      <label class="auto"><input type="checkbox" id="auto" /> Auto 60s</label>
+      <span id="status"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="chart"></section>
+
+    <aside>
+      <div class="card" id="summary"></div>
+
+      <div class="card">
+        <h3>Backtest ទិន្នន័យពិត</h3>
+        <button id="longtest" style="width:100%">Backtest 10,000 candles (ទាំង 3 preset)</button>
+        <div id="bt" class="note" style="margin-top:8px">ចុចដើម្បីវាស់ win rate / Avg R លើទិន្នន័យពិតរបស់គូ និង timeframe ដែលបានជ្រើស។</div>
+      </div>
+
+      <div class="card">
+        <h3>Layers</h3>
+        <div class="grid2">
+          <label><input type="checkbox" id="l-ema" checked /> EMA (BMA)</label>
+          <label><input type="checkbox" id="l-struct" checked /> BOS / CHoCH</label>
+          <label><input type="checkbox" id="l-zones" checked /> OB / FVG</label>
+          <label><input type="checkbox" id="l-sweep" checked /> Liquidity</label>
+          <label><input type="checkbox" id="l-trend" checked /> Trend Line</label>
+          <label><input type="checkbox" id="l-snr" checked /> MSnR</label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Settings</h3>
+        <div class="grid2 inputs">
+          <label>Min score (1-7) <input type="number" id="minScore" value="6" min="1" max="7" /></label>
+          <label>Cooldown (bars) <input type="number" id="cooldown" value="32" min="0" /></label>
+          <label>R : R <input type="number" id="rr" value="1.5" step="0.5" /></label>
+          <label>Max hold (bars) <input type="number" id="maxHold" value="48" min="4" /></label>
+          <label>SL × ATR <input type="number" id="slMult" value="1" step="0.1" /></label>
+          <label>Lookback <input type="number" id="lookback" value="6" min="1" /></label>
+          <label>Swing len <input type="number" id="swingLen" value="5" min="2" /></label>
+          <label>TL pivot <input type="number" id="tlLen" value="10" min="3" /></label>
+          <label>SnR pivot <input type="number" id="snrLen" value="5" min="2" /></label>
+          <label>Fast EMA <input type="number" id="fastLen" value="21" /></label>
+          <label>Slow EMA <input type="number" id="slowLen" value="50" /></label>
+          <label>Trend EMA <input type="number" id="trendLen" value="200" /></label>
+        </div>
+        <label class="auto"><input type="checkbox" id="useFilter" checked /> Require EMA filter</label>
+        <label class="auto"><input type="checkbox" id="oncePerSession" checked /> 1 session = 1 signal (មួយក្នុងមួយ session)</label>
+        <div class="grid2" style="margin-top:6px">
+          <label><input type="checkbox" id="sessAsia" /> Asia 00–07 UTC</label>
+          <label><input type="checkbox" id="sessLondon" checked /> London 07–13</label>
+          <label><input type="checkbox" id="sessNY" checked /> New York 13–21</label>
+        </div>
+        <label class="auto"><input type="checkbox" id="needStruct" checked /> ត្រូវមាន BOS/CHoCH</label>
+        <label class="auto"><input type="checkbox" id="needLocation" checked /> ត្រូវមាន Sweep ឬ MSnR touch</label>
+      </div>
+
+      <div class="card" id="stats"></div>
+      <div class="card"><h3>Signals (latest first)</h3><div id="signals"></div></div>
+
+      <p class="note">⚠️ សម្រាប់ការសិក្សា/វិភាគប៉ុណ្ណោះ មិនមែនជាដំបូន្មានវិនិយោគទេ។ Win rate ខ្ពស់មិនស្មើប្រាក់ចំណេញ សូមមើល Avg R និង Out-of-sample ហើយសាកល្បងលើ Demo ជាមុន។</p>
+    </aside>
+  </main>
+
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+/*
+ * BMA + ICT/SMC + Trend Line + MSnR analysis engine  (v2: quality filters)
+ * Pure JavaScript, no dependencies. Works in browser (window.Engine) and Node (module.exports).
+ *
+ * v2 additions: higher-timeframe bias, one-trade-at-a-time, cooldown, session filter,
+ * volatility filter, mandatory structure/location confirmation, time stop, richer stats.
+ */
+(function (root) {
+  'use strict';
+
+  const DEFAULTS = {
+    fastLen: 21,
+    slowLen: 50,
+    trendLen: 200,
+    swingLen: 5,
+    fvgMin: 0.2,
+    tlLen: 10,
+    snrLen: 5,
+    snrMax: 8,
+    snrTol: 0.3,
+    // signal quality
+    minScore: 6,        // out of 7 (trend, break, sweep, FVG, MSnR, trendline, HTF)
+    lookback: 6,        // event memory in bars
+    useFilter: true,    // price must be on the right side of slow EMA
+    slMult: 1.0,
+    rr: 1.5,
+    htfSec: 14400,      // higher-timeframe bucket in seconds (0 = off). 14400 = H4, 3600 = H1
+    htfEma: 50,
+    cooldown: 32,       // bars to wait after a signal (32 x M15 = 8h)
+    maxHold: 48,        // time stop in bars
+    minAtrRatio: 0.8,   // skip dead markets: ATR must be >= ratio * its 100-bar average
+    minSLAtr: 0.8,      // stop never tighter than this many ATR
+    maxSLAtr: 4,        // skip setups whose stop is wider than this many ATR
+    session: true,      // restrict signals to the enabled sessions below (UTC hours)
+    sessAsia: false,    // Asia    00:00-07:00 UTC
+    sessLondon: true,   // London  07:00-13:00 UTC
+    sessNY: true,       // New York 13:00-21:00 UTC
+    oncePerSession: true, // max ONE signal per session per day
+    needStruct: true,   // require a recent BOS/CHoCH in trade direction
+    needLocation: true, // require a recent liquidity sweep or MSnR touch
+  };
+
+  const PRESETS = {
+    strict:   { minScore: 6, cooldown: 32, rr: 1.5, maxHold: 48, minAtrRatio: 0.8, needStruct: true,  needLocation: true  },
+    balanced: { minScore: 5, cooldown: 20, rr: 2.0, maxHold: 64, minAtrRatio: 0.7, needStruct: true,  needLocation: true  },
+    active:   { minScore: 4, cooldown: 8,  rr: 2.0, maxHold: 64, minAtrRatio: 0.5, needStruct: false, needLocation: false },
+  };
+
+  function ema(values, n) {
+    const k = 2 / (n + 1);
+    const out = [];
+    let p = 0;
+    for (let i = 0; i < values.length; i++) {
+      p = i === 0 ? values[i] : values[i] * k + p * (1 - k);
+      out.push(p);
+    }
+    return out;
+  }
+
+  function atr(candles, n) {
+    const out = [];
+    let p = 0;
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i];
+      const tr =
+        i === 0
+          ? c.high - c.low
+          : Math.max(
+              c.high - c.low,
+              Math.abs(c.high - candles[i - 1].close),
+              Math.abs(c.low - candles[i - 1].close)
+            );
+      p = i === 0 ? tr : (p * (n - 1) + tr) / n;
+      out.push(p);
+    }
+    return out;
+  }
+
+  // Pivot at index p, confirmed `len` bars later (no look-ahead beyond p+len)
+  function isPivot(arr, p, len, isHigh) {
+    if (p - len < 0 || p + len >= arr.length) return false;
+    const v = arr[p];
+    for (let j = p - len; j <= p + len; j++) {
+      if (j === p) continue;
+      if (isHigh ? arr[j] > v : arr[j] < v) return false;
+    }
+    return true;
+  }
+
+  const linePrice = (l, x) => l.y1 + ((l.y2 - l.y1) * (x - l.x1)) / (l.x2 - l.x1);
+
+  // Higher-timeframe bias using ONLY completed HTF bars (no look-ahead).
+  // Returns array of 1 (bull) / -1 (bear) / 0 (neutral) per lower-timeframe bar.
+  function htfBias(candles, sec, emaLen) {
+    const n = candles.length;
+    const bias = new Array(n).fill(0);
+    if (!sec) return bias;
+    const kF = 2 / (20 + 1);
+    const kS = 2 / (emaLen + 1);
+    let cur = null;
+    let eF = null, eS = null, lastClose = null, count = 0;
+    for (let i = 0; i < n; i++) {
+      const b = Math.floor(candles[i].time / sec);
+      if (cur && b !== cur.b) {
+        // previous HTF bar just completed
+        lastClose = cur.close;
+        eF = eF === null ? lastClose : lastClose * kF + eF * (1 - kF);
+        eS = eS === null ? lastClose : lastClose * kS + eS * (1 - kS);
+        count++;
+      }
+      if (!cur || b !== cur.b) cur = { b, close: candles[i].close };
+      else cur.close = candles[i].close;
+      if (count >= emaLen) {
+        bias[i] = lastClose > eS && eF > eS ? 1 : lastClose < eS && eF < eS ? -1 : 0;
+      }
+    }
+    return bias;
+  }
+
+  function cfgFor(preset, overrides) {
+    return Object.assign({}, DEFAULTS, PRESETS[preset] || {}, overrides || {});
+  }
+
+  function analyze(candles, userCfg) {
+    const cfg = Object.assign({}, DEFAULTS, userCfg || {});
+    const n = candles.length;
+    const close = candles.map((c) => c.close);
+    const H = candles.map((c) => c.high);
+    const L = candles.map((c) => c.low);
+
+    const eF = ema(close, cfg.fastLen);
+    const eS = ema(close, cfg.slowLen);
+    const eT = ema(close, cfg.trendLen);
+    const A = atr(candles, 14);
+    const Aavg = ema(A, 100);
+    const HTF = htfBias(candles, cfg.htfSec, cfg.htfEma);
+
+    const out = {
+      cfg,
+      ema: { f: eF, s: eS, t: eT },
+      events: [],
+      zones: [],
+      signals: [],
+      levels: [],
+      trendLines: { res: null, sup: null },
+      state: null,
+    };
+
+    let sh = null, sl = null;
+    let shCrossed = false, slCrossed = false;
+    let trendDir = 0;
+
+    let tH1 = null, tH2 = null, tL1 = null, tL2 = null;
+    let res = null, sup = null;
+
+    let levels = [];
+
+    const NEG = -1e9;
+    const last = {
+      bullBreak: NEG, bearBreak: NEG,
+      sweepLow: NEG, sweepHigh: NEG,
+      bullFVG: NEG, bearFVG: NEG,
+      snrSup: NEG, snrRes: NEG,
+      tlUp: NEG, tlDown: NEG,
+    };
+
+    let prevBuyOk = false, prevSellOk = false;
+    let lastScores = { buy: 0, sell: 0 };
+    let active = null;
+    let lastSigBar = NEG;
+    let lastSessKey = null;
+    const SESS_NAMES = ['Asia', 'London', 'NY', 'Off'];
+
+    const closeTrade = (t, result, exitPrice, idx) => {
+      t.result = result;
+      t.exit = idx;
+      const risk = Math.abs(t.entry - t.sl);
+      if (result === 'TP') t.r = cfg.rr;
+      else if (result === 'SL') t.r = -1;
+      else t.r = ((t.side === 'BUY' ? exitPrice - t.entry : t.entry - exitPrice) / risk);
+    };
+
+    for (let i = 0; i < n; i++) {
+      const c = candles[i];
+
+      // ---- manage open trade (SL checked before TP: conservative) ----
+      if (active) {
+        const t = active;
+        if (t.side === 'BUY') {
+          if (c.low <= t.sl) { closeTrade(t, 'SL', t.sl, i); active = null; }
+          else if (c.high >= t.tp) { closeTrade(t, 'TP', t.tp, i); active = null; }
+        } else {
+          if (c.high >= t.sl) { closeTrade(t, 'SL', t.sl, i); active = null; }
+          else if (c.low <= t.tp) { closeTrade(t, 'TP', t.tp, i); active = null; }
+        }
+        if (active && i - t.i >= cfg.maxHold) { closeTrade(t, 'TIME', c.close, i); active = null; }
+      }
+
+      // ---- swing pivots (market structure) ----
+      const p = i - cfg.swingLen;
+      if (p >= 0) {
+        if (isPivot(H, p, cfg.swingLen, true)) { sh = { v: H[p], idx: p }; shCrossed = false; }
+        if (isPivot(L, p, cfg.swingLen, false)) { sl = { v: L[p], idx: p }; slCrossed = false; }
+      }
+
+      // ---- BOS / CHoCH + Order Block ----
+      if (sh && !shCrossed && c.close > sh.v) {
+        const choch = trendDir === -1;
+        out.events.push({ i, type: choch ? 'CHoCH' : 'BOS', dir: 'bull', level: sh.v, from: sh.idx });
+        last.bullBreak = i;
+        if (sl) {
+          const lb = Math.min(i - sl.idx, 50);
+          for (let k = 0; k <= lb; k++) {
+            const b = candles[i - k];
+            if (b.close < b.open) {
+              out.zones.push({ kind: 'OB', dir: 'bull', start: i - k, end: Math.min(i + 15, n - 1), top: b.high, bottom: b.low });
+              break;
+            }
+          }
+        }
+        shCrossed = true;
+        trendDir = 1;
+      }
+      if (sl && !slCrossed && c.close < sl.v) {
+        const choch = trendDir === 1;
+        out.events.push({ i, type: choch ? 'CHoCH' : 'BOS', dir: 'bear', level: sl.v, from: sl.idx });
+        last.bearBreak = i;
+        if (sh) {
+          const lb = Math.min(i - sh.idx, 50);
+          for (let k = 0; k <= lb; k++) {
+            const b = candles[i - k];
+            if (b.close > b.open) {
+              out.zones.push({ kind: 'OB', dir: 'bear', start: i - k, end: Math.min(i + 15, n - 1), top: b.high, bottom: b.low });
+              break;
+            }
+          }
+        }
+        slCrossed = true;
+        trendDir = -1;
+      }
+
+      // ---- Fair Value Gap ----
+      if (i >= 2) {
+        const a = A[i] * cfg.fvgMin;
+        if (c.low > H[i - 2] && c.low - H[i - 2] > a && candles[i - 1].close > candles[i - 1].open) {
+          out.zones.push({ kind: 'FVG', dir: 'bull', start: i - 2, end: Math.min(i + 15, n - 1), top: c.low, bottom: H[i - 2] });
+          last.bullFVG = i;
+        }
+        if (c.high < L[i - 2] && L[i - 2] - c.high > a && candles[i - 1].close < candles[i - 1].open) {
+          out.zones.push({ kind: 'FVG', dir: 'bear', start: i - 2, end: Math.min(i + 15, n - 1), top: L[i - 2], bottom: c.high });
+          last.bearFVG = i;
+        }
+      }
+
+      // ---- Liquidity sweep ----
+      if (sl && c.low < sl.v && c.close > sl.v && i > sl.idx + 1) {
+        out.events.push({ i, type: 'SSL', dir: 'bull', level: sl.v });
+        last.sweepLow = i;
+      }
+      if (sh && c.high > sh.v && c.close < sh.v && i > sh.idx + 1) {
+        out.events.push({ i, type: 'BSL', dir: 'bear', level: sh.v });
+        last.sweepHigh = i;
+      }
+
+      // ---- Auto trend lines ----
+      const q = i - cfg.tlLen;
+      if (q >= 0) {
+        if (isPivot(H, q, cfg.tlLen, true)) {
+          tH2 = tH1; tH1 = { idx: q, v: H[q] };
+          if (tH2 && tH1.v < tH2.v) res = { x1: tH2.idx, y1: tH2.v, x2: tH1.idx, y2: tH1.v };
+        }
+        if (isPivot(L, q, cfg.tlLen, false)) {
+          tL2 = tL1; tL1 = { idx: q, v: L[q] };
+          if (tL2 && tL1.v > tL2.v) sup = { x1: tL2.idx, y1: tL2.v, x2: tL1.idx, y2: tL1.v };
+        }
+      }
+      if (res && i > 0) {
+        if (close[i - 1] <= linePrice(res, i - 1) && c.close > linePrice(res, i)) last.tlUp = i;
+      }
+      if (sup && i > 0) {
+        if (close[i - 1] >= linePrice(sup, i - 1) && c.close < linePrice(sup, i)) last.tlDown = i;
+      }
+
+      // ---- MSnR: A-level / V-level from closing price ----
+      const r = i - cfg.snrLen;
+      if (r >= 0) {
+        if (isPivot(close, r, cfg.snrLen, true)) levels.push({ price: close[r], type: 'A', idx: r });
+        if (isPivot(close, r, cfg.snrLen, false)) levels.push({ price: close[r], type: 'V', idx: r });
+        while (levels.length > cfg.snrMax) levels.shift();
+      }
+      const tol = A[i] * cfg.snrTol;
+      for (const lv of levels) {
+        if (c.low <= lv.price + tol && c.low >= lv.price - tol && c.close > lv.price) last.snrSup = i;
+        if (c.high >= lv.price - tol && c.high <= lv.price + tol && c.close < lv.price) last.snrRes = i;
+      }
+
+      // ---- Confluence score (max 7) ----
+      const rec = (k) => i - last[k] <= cfg.lookback;
+      const trendBull = c.close > eS[i] && eF[i] > eS[i];
+      const trendBear = c.close < eS[i] && eF[i] < eS[i];
+      const htfBull = HTF[i] === 1;
+      const htfBear = HTF[i] === -1;
+
+      const buyScore =
+        (trendBull ? 1 : 0) + (rec('bullBreak') ? 1 : 0) + (rec('sweepLow') ? 1 : 0) +
+        (rec('bullFVG') ? 1 : 0) + (rec('snrSup') ? 1 : 0) + (rec('tlUp') ? 1 : 0) + (htfBull ? 1 : 0);
+      const sellScore =
+        (trendBear ? 1 : 0) + (rec('bearBreak') ? 1 : 0) + (rec('sweepHigh') ? 1 : 0) +
+        (rec('bearFVG') ? 1 : 0) + (rec('snrRes') ? 1 : 0) + (rec('tlDown') ? 1 : 0) + (htfBear ? 1 : 0);
+      lastScores = { buy: buyScore, sell: sellScore };
+
+      const buyOk =
+        buyScore >= cfg.minScore &&
+        (!cfg.useFilter || c.close > eS[i]) &&
+        (!cfg.htfSec || htfBull) &&
+        (!cfg.needStruct || rec('bullBreak')) &&
+        (!cfg.needLocation || rec('sweepLow') || rec('snrSup'));
+      const sellOk =
+        sellScore >= cfg.minScore &&
+        (!cfg.useFilter || c.close < eS[i]) &&
+        (!cfg.htfSec || htfBear) &&
+        (!cfg.needStruct || rec('bearBreak')) &&
+        (!cfg.needLocation || rec('sweepHigh') || rec('snrRes'));
+
+      // ---- gates: session, volatility, cooldown, one trade at a time ----
+      const hr = new Date(c.time * 1000).getUTCHours();
+      const sess = hr < 7 ? 0 : hr < 13 ? 1 : hr < 21 ? 2 : -1; // 0 Asia, 1 London, 2 NY, -1 off-hours
+      const sessEnabled = sess === 0 ? cfg.sessAsia : sess === 1 ? cfg.sessLondon : sess === 2 ? cfg.sessNY : false;
+      const sessOk = !cfg.session || sessEnabled;
+      const sessKey = Math.floor(c.time / 86400) * 4 + (sess + 1);
+      const sessFree = !cfg.oncePerSession || sessKey !== lastSessKey;
+      const volOk = A[i] >= Aavg[i] * cfg.minAtrRatio;
+      const free = !active && i - lastSigBar >= cfg.cooldown && sessFree;
+      const gate = i >= cfg.trendLen && sessOk && volOk && free;
+
+      if (gate && buyOk && !prevBuyOk) {
+        let lo = Infinity;
+        for (let k = Math.max(0, i - 4); k <= i; k++) lo = Math.min(lo, L[k]);
+        let slp = Math.min(c.low, lo) - A[i] * cfg.slMult;
+        let risk = c.close - slp;
+        if (risk < A[i] * cfg.minSLAtr) { slp = c.close - A[i] * cfg.minSLAtr; risk = c.close - slp; }
+        if (risk <= A[i] * cfg.maxSLAtr) {
+          const tp = c.close + risk * cfg.rr;
+          const s = { i, side: 'BUY', entry: c.close, sl: slp, tp, score: buyScore, session: SESS_NAMES[sess < 0 ? 3 : sess], result: 'OPEN', r: null };
+          out.signals.push(s);
+          active = s;
+          lastSigBar = i;
+          lastSessKey = sessKey;
+        }
+      } else if (gate && sellOk && !prevSellOk) {
+        let hi = -Infinity;
+        for (let k = Math.max(0, i - 4); k <= i; k++) hi = Math.max(hi, H[k]);
+        let slp = Math.max(c.high, hi) + A[i] * cfg.slMult;
+        let risk = slp - c.close;
+        if (risk < A[i] * cfg.minSLAtr) { slp = c.close + A[i] * cfg.minSLAtr; risk = slp - c.close; }
+        if (risk <= A[i] * cfg.maxSLAtr) {
+          const tp = c.close - risk * cfg.rr;
+          const s = { i, side: 'SELL', entry: c.close, sl: slp, tp, score: sellScore, session: SESS_NAMES[sess < 0 ? 3 : sess], result: 'OPEN', r: null };
+          out.signals.push(s);
+          active = s;
+          lastSigBar = i;
+          lastSessKey = sessKey;
+        }
+      }
+      prevBuyOk = buyOk;
+      prevSellOk = sellOk;
+    }
+
+    out.levels = levels;
+    out.trendLines = { res, sup };
+    const li = n - 1;
+    out.state = {
+      price: candles[li].close,
+      bias: candles[li].close > eS[li] && eF[li] > eS[li] ? 'BULLISH'
+        : candles[li].close < eS[li] && eF[li] < eS[li] ? 'BEARISH' : 'RANGE',
+      htf: HTF[li] === 1 ? 'BULLISH' : HTF[li] === -1 ? 'BEARISH' : (cfg.htfSec ? 'NEUTRAL' : 'OFF'),
+      session: (() => { const h = new Date(candles[li].time * 1000).getUTCHours(); return h < 7 ? 'Asia' : h < 13 ? 'London' : h < 21 ? 'NY' : 'Off-hours'; })(),
+      structure: trendDir === 1 ? 'Bull' : trendDir === -1 ? 'Bear' : '-',
+      buyScore: lastScores.buy,
+      sellScore: lastScores.sell,
+      atr: A[li],
+    };
+    out.backtest = stats(out.signals);
+    return out;
+  }
+
+  // Aggregate statistics from signals that carry result/r
+  function stats(signals) {
+    let wins = 0, losses = 0, open = 0, timeExits = 0, sum = 0, gp = 0, gl = 0;
+    for (const s of signals) {
+      if (s.result === 'OPEN') { open++; continue; }
+      if (s.result === 'TIME') timeExits++;
+      if (s.r > 0) { wins++; gp += s.r; } else { losses++; gl += -s.r; }
+      sum += s.r;
+    }
+    const closed = wins + losses;
+    return {
+      total: signals.length,
+      wins, losses, open, timeExits,
+      winRate: closed ? (wins / closed) * 100 : 0,
+      totalR: sum,
+      avgR: closed ? sum / closed : 0,
+      pf: gl > 0 ? gp / gl : gp > 0 ? Infinity : 0,
+    };
+  }
+
+  // Kept for backward compatibility
+  function backtest(candles, signals) { return stats(signals); }
+
+  const api = { analyze, backtest, stats, ema, atr, htfBias, cfgFor, DEFAULTS, PRESETS, linePrice };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.Engine = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const HOSTS = ['https://api.binance.com', 'https://data-api.binance.vision'];
+
+  let chart = null;
+  let candles = [];
+  let timer = null;
+  let presetExtras = Object.assign({}, Engine.PRESETS.strict); // fields without inputs (minAtrRatio ...)
+
+  const fmt = (v) => (v >= 100 ? v.toFixed(2) : v >= 1 ? v.toFixed(4) : v.toPrecision(5));
+
+  function setStatus(t) { $('status').textContent = t; }
+
+  function applyPreset(name) {
+    const p = Engine.PRESETS[name];
+    presetExtras = Object.assign({}, p);
+    $('minScore').value = p.minScore;
+    $('cooldown').value = p.cooldown;
+    $('rr').value = p.rr;
+    $('maxHold').value = p.maxHold;
+    $('needStruct').checked = p.needStruct;
+    $('needLocation').checked = p.needLocation;
+  }
+
+  function readCfg() {
+    const num = (id) => parseFloat($(id).value);
+    const htfSec = parseInt($('htf').value, 10);
+    return Object.assign({}, Engine.DEFAULTS, presetExtras, {
+      fastLen: num('fastLen'), slowLen: num('slowLen'), trendLen: num('trendLen'),
+      swingLen: num('swingLen'), tlLen: num('tlLen'), snrLen: num('snrLen'),
+      minScore: num('minScore'), lookback: num('lookback'),
+      slMult: num('slMult'), rr: num('rr'),
+      cooldown: num('cooldown'), maxHold: num('maxHold'),
+      htfSec,
+      useFilter: $('useFilter').checked,
+      session: true,
+      sessAsia: $('sessAsia').checked,
+      sessLondon: $('sessLondon').checked,
+      sessNY: $('sessNY').checked,
+      oncePerSession: $('oncePerSession').checked,
+      needStruct: $('needStruct').checked,
+      needLocation: $('needLocation').checked,
+    });
+  }
+
+  const toCandles = (raw) => raw.map((k) => ({
+    time: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4],
+  }));
+
+  async function fetchJson(path) {
+    let lastErr;
+    for (const host of HOSTS) {
+      try {
+        const r = await fetch(host + path);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
+  }
+
+  async function fetchKlines(symbol, tf) {
+    return toCandles(await fetchJson(`/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=1000`));
+  }
+
+  // Page backwards to collect `total` candles
+  async function fetchHistory(symbol, tf, total) {
+    let all = [];
+    let end = null;
+    while (all.length < total) {
+      const raw = await fetchJson(
+        `/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=1000` + (end ? `&endTime=${end}` : '')
+      );
+      if (!raw.length) break;
+      all = toCandles(raw).concat(all);
+      end = raw[0][0] - 1;
+      setStatus(`ទាញទិន្នន័យ ${all.length}/${total}...`);
+      if (raw.length < 1000) break;
+    }
+    return all;
+  }
+
+  async function load() {
+    setStatus('កំពុងទាញទិន្នន័យ...');
+    try {
+      candles = await fetchKlines($('symbol').value, $('tf').value);
+      render();
+      setStatus('Updated ' + new Date().toLocaleTimeString());
+    } catch (e) {
+      setStatus('Error: ' + e.message + ' (ពិនិត្យអ៊ីនធឺណិត)');
+    }
+  }
+
+  function lineSeries(color, width, style) {
+    return chart.addLineSeries({
+      color, lineWidth: width, lineStyle: style || 0,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    });
+  }
+
+  function render() {
+    if (!candles.length) return;
+    const a = Engine.analyze(candles, readCfg());
+    const n = candles.length;
+    const T = (i) => candles[Math.min(Math.max(i, 0), n - 1)].time;
+
+    const el = $('chart');
+    if (chart) chart.remove();
+    chart = LightweightCharts.createChart(el, {
+      width: el.clientWidth, height: el.clientHeight,
+      layout: { background: { color: '#0d1117' }, textColor: '#c9d1d9' },
+      grid: { vertLines: { color: '#1c232c' }, horzLines: { color: '#1c232c' } },
+      rightPriceScale: { borderColor: '#30363d' },
+      timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#30363d' },
+    });
+    const cs = chart.addCandlestickSeries({
+      upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
+      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+    });
+    cs.setData(candles);
+
+    if ($('l-ema').checked) {
+      [['f', '#00bcd4', 1], ['s', '#ff9800', 2], ['t', '#e0e0e0', 2]].forEach(([k, col, w]) => {
+        const s = lineSeries(col, w);
+        s.setData(candles.map((c, i) => ({ time: c.time, value: a.ema[k][i] })));
+      });
+    }
+
+    if ($('l-zones').checked) {
+      a.zones.slice(-14).forEach((z) => {
+        const col = z.kind === 'OB' ? (z.dir === 'bull' ? '#3fb950' : '#f85149')
+                                    : (z.dir === 'bull' ? '#14b8a6' : '#c2410c');
+        [z.top, z.bottom].forEach((v) => {
+          const s = lineSeries(col, 1, 2);
+          s.setData([{ time: T(z.start), value: v }, { time: T(z.end), value: v }]);
+        });
+      });
+    }
+
+    if ($('l-trend').checked) {
+      const { res, sup } = a.trendLines;
+      [[res, '#f85149'], [sup, '#a3e635']].forEach(([l, col]) => {
+        if (!l) return;
+        const s = lineSeries(col, 2);
+        s.setData([
+          { time: T(l.x1), value: l.y1 },
+          { time: T(n - 1), value: Engine.linePrice(l, n - 1) },
+        ]);
+      });
+    }
+
+    if ($('l-snr').checked) {
+      a.levels.forEach((lv) => {
+        cs.createPriceLine({
+          price: lv.price, color: lv.type === 'A' ? '#f85149' : '#3fb950',
+          lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: lv.type === 'A' ? 'A' : 'V',
+        });
+      });
+    }
+
+    const markers = [];
+    if ($('l-struct').checked) {
+      a.events.filter((e) => e.type === 'BOS' || e.type === 'CHoCH').forEach((e) => {
+        markers.push({
+          time: T(e.i), position: e.dir === 'bull' ? 'belowBar' : 'aboveBar',
+          shape: 'circle', size: 0.4, color: e.dir === 'bull' ? '#3fb950' : '#f85149', text: e.type,
+        });
+      });
+    }
+    if ($('l-sweep').checked) {
+      a.events.filter((e) => e.type === 'SSL' || e.type === 'BSL').forEach((e) => {
+        markers.push({
+          time: T(e.i), position: e.dir === 'bull' ? 'belowBar' : 'aboveBar',
+          shape: 'square', size: 0.4, color: '#d29922', text: e.type,
+        });
+      });
+    }
+    a.signals.forEach((s) => {
+      markers.push({
+        time: T(s.i), position: s.side === 'BUY' ? 'belowBar' : 'aboveBar',
+        shape: s.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+        color: s.side === 'BUY' ? '#3fb950' : '#f85149', text: s.side, size: 2,
+      });
+    });
+    markers.sort((x, y) => x.time - y.time);
+    cs.setMarkers(markers);
+
+    const ls = a.signals[a.signals.length - 1];
+    if (ls && ls.result === 'OPEN') {
+      [['Entry', ls.entry, '#8b949e'], ['SL', ls.sl, '#f85149'], ['TP', ls.tp, '#3fb950']].forEach(
+        ([t, p, col]) => cs.createPriceLine({ price: p, color: col, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: t })
+      );
+    }
+
+    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 160), to: n + 8 });
+    renderPanel(a);
+  }
+
+  function renderPanel(a) {
+    const s = a.state;
+    const cls = (v) => (v === 'BULLISH' ? 'buy' : v === 'BEARISH' ? 'sell' : 'warn');
+    const lastSig = a.signals[a.signals.length - 1];
+
+    let advice = '<span class="warn">រង់ចាំសញ្ញា (WAIT)</span>';
+    if (lastSig && lastSig.result === 'OPEN') {
+      const ago = candles.length - 1 - lastSig.i;
+      advice = `<span class="${lastSig.side === 'BUY' ? 'buy' : 'sell'} big">${lastSig.side} @ ${fmt(lastSig.entry)}</span>
+        <div class="note">បើក ${ago} candle មុន · ត្រូវកំពុង OPEN</div>
+        <div class="row"><span>SL</span><span class="sell">${fmt(lastSig.sl)}</span></div>
+        <div class="row"><span>TP</span><span class="buy">${fmt(lastSig.tp)}</span></div>`;
+    }
+
+    $('summary').innerHTML = `
+      <h3>Analysis</h3>
+      <div class="row"><span>Price</span><b>${fmt(s.price)}</b></div>
+      <div class="row"><span>Trend (BMA)</span><b class="${cls(s.bias)}">${s.bias}</b></div>
+      <div class="row"><span>HTF bias</span><b class="${cls(s.htf)}">${s.htf}</b></div>
+      <div class="row"><span>Structure</span><b>${s.structure}</b></div>
+      <div class="row"><span>Session (UTC)</span><b>${s.session}</b></div>
+      <div class="row"><span>Buy / Sell score</span><b><span class="buy">${s.buyScore}</span> / <span class="sell">${s.sellScore}</span> (ក្នុង 7)</b></div>
+      <div style="margin-top:8px">${advice}</div>`;
+
+    const b = a.backtest;
+    const pf = isFinite(b.pf) ? b.pf.toFixed(2) : '∞';
+    $('stats').innerHTML = `
+      <h3>Backtest (ទិន្នន័យដែលបង្ហាញ)</h3>
+      <div class="row"><span>Signals</span><b>${b.total}</b></div>
+      <div class="row"><span>Win / Loss / Open</span><b>${b.wins} / ${b.losses} / ${b.open}</b></div>
+      <div class="row"><span>Win rate</span><b>${b.winRate.toFixed(1)}%</b></div>
+      <div class="row"><span>Avg R / trade</span><b class="${b.avgR >= 0 ? 'buy' : 'sell'}">${b.avgR.toFixed(2)}R</b></div>
+      <div class="row"><span>Profit factor</span><b>${pf}</b></div>
+      <div class="row"><span>Total R</span><b class="${b.totalR >= 0 ? 'buy' : 'sell'}">${b.totalR.toFixed(1)}R</b></div>`;
+
+    const list = a.signals.slice(-15).reverse().map((g) => {
+      const t = new Date(candles[g.i].time * 1000).toLocaleString();
+      const r = g.r === null ? '' : ` · ${g.r >= 0 ? '+' : ''}${g.r.toFixed(2)}R`;
+      return `<div class="sig"><b class="${g.side === 'BUY' ? 'buy' : 'sell'}">${g.side}</b>
+        <span class="tag ${g.result}">${g.result}</span> ${g.session} · score ${g.score}${r}<br>
+        ${t}<br>E ${fmt(g.entry)} · SL ${fmt(g.sl)} · TP ${fmt(g.tp)}</div>`;
+    }).join('');
+    $('signals').innerHTML = list || '<div class="note">មិនទាន់មានសញ្ញា</div>';
+  }
+
+  // ---------- Long backtest: 3 presets, in-sample (70%) vs out-of-sample (30%) ----------
+  async function longTest() {
+    const btn = $('longtest');
+    btn.disabled = true;
+    try {
+      const sym = $('symbol').value, tf = $('tf').value;
+      const hist = await fetchHistory(sym, tf, 10000);
+      const cut = Math.floor(hist.length * 0.7);
+      const base = readCfg();
+      const barsPerDay = { '5m': 288, '15m': 96, '1h': 24, '4h': 6, '1d': 1 }[tf] || 96;
+      const days = hist.length / barsPerDay;
+
+      const rowHtml = (label, st, perDay) => {
+        const pf = isFinite(st.pf) ? st.pf.toFixed(2) : '∞';
+        return `<tr><td>${label}</td><td>${st.total}${perDay !== undefined ? ` <small>(${perDay.toFixed(2)}/ថ្ងៃ)</small>` : ''}</td>
+          <td>${st.winRate.toFixed(0)}%</td>
+          <td class="${st.avgR >= 0 ? 'buy' : 'sell'}">${st.avgR.toFixed(2)}</td><td>${pf}</td></tr>`;
+      };
+
+      let html = `<div class="note">${sym} ${tf} · ${hist.length} candles ≈ ${days.toFixed(0)} ថ្ងៃ</div>
+        <table class="bt"><tr><th>Preset / ចន្លោះ</th><th>Signals</th><th>Win</th><th>Avg R</th><th>PF</th></tr>`;
+      let worstOos = null;
+      for (const name of ['strict', 'balanced', 'active']) {
+        const cfg = Object.assign({}, base, Engine.PRESETS[name]);
+        const a = Engine.analyze(hist, cfg);
+        const all = Engine.stats(a.signals);
+        const ins = Engine.stats(a.signals.filter((s) => s.i < cut));
+        const oos = Engine.stats(a.signals.filter((s) => s.i >= cut));
+        html += rowHtml(`<b>${name}</b> ទាំងអស់`, all, all.total / days);
+        html += rowHtml('&nbsp;&nbsp;in-sample 70%', ins);
+        html += rowHtml('&nbsp;&nbsp;out-of-sample 30%', oos);
+        if (name === $('preset').value) worstOos = oos;
+      }
+      html += '</table>';
+      html += `<div class="note" style="margin-top:6px">
+        • <b>Avg R &gt; 0</b> និង <b>out-of-sample</b> នៅតែល្អ ទើបគួរទុកចិត្ត។ បើ in-sample ល្អ តែ out-of-sample អន់ គឺ overfit។<br>
+        • Win rate ខ្ពស់ដោយ R:R ទាប (&lt;1) អាចនៅតែខាតបង់ ដូច្នេះមើល Avg R ជាចម្បង។<br>
+        • មិនរួមបញ្ចូល fee/slippage ទេ។ លទ្ធផលអតីតកាលមិនធានាអនាគត។</div>`;
+      if (worstOos && worstOos.total >= 5 && worstOos.avgR <= 0) {
+        html += `<div class="warn" style="margin-top:6px">⚠️ Preset ដែលបានជ្រើសមាន Avg R ≤ 0 លើ out-of-sample — កុំប្រើលុយពិត។</div>`;
+      }
+      $('bt').innerHTML = html;
+      setStatus('Backtest រួចរាល់');
+    } catch (e) {
+      $('bt').textContent = 'Error: ' + e.message;
+      setStatus('');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function bind() {
+    $('reload').onclick = load;
+    $('symbol').onchange = load;
+    $('tf').onchange = load;
+    $('longtest').onclick = longTest;
+    $('preset').onchange = () => { applyPreset($('preset').value); render(); };
+    $('htf').onchange = render;
+    document.querySelectorAll('aside input').forEach((el) => el.addEventListener('change', render));
+    $('auto').onchange = () => {
+      clearInterval(timer);
+      if ($('auto').checked) timer = setInterval(load, 60000);
+    };
+    window.addEventListener('resize', () => {
+      if (chart) chart.applyOptions({ width: $('chart').clientWidth, height: $('chart').clientHeight });
+    });
+  }
+
+  applyPreset('strict');
+  bind();
+  load();
+})();
+
+</script>
+</body>
+</html>
